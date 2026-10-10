@@ -257,14 +257,15 @@ describe('abstract memo cap (ABSTRACT_MEMO_MAX)', () => {
   test('the memo holds at most ABSTRACT_MEMO_MAX abstracts, evicting the oldest', async () => {
     const { asked, fallback } = countingFallback()
     await withMemoMax('2', async () => {
-      for (const id of ['a', 'b', 'c']) {
-        await loadPaperContent(`2401.0003${id.length}`, noContentFetch, db, fallback, 168, false, 'off')
+      for (const id of ['0', '1', '2']) {
+        await loadPaperContent(`2401.0003${id}`, noContentFetch, db, fallback, 168, false, 'off')
       }
       // Only the two newest survive; 'a' was evicted when 'c' arrived.
       const { asked: asked2, fallback: fb2 } = countingFallback()
-      await loadPaperContent('2401.00030', noContentFetch, db, fb2, 168, false, 'off')
+      // Verify hits before reintroducing the evicted key: a miss changes the LRU.
       await loadPaperContent('2401.00031', noContentFetch, db, fb2, 168, false, 'off')
       await loadPaperContent('2401.00032', noContentFetch, db, fb2, 168, false, 'off')
+      await loadPaperContent('2401.00030', noContentFetch, db, fb2, 168, false, 'off')
       expect(asked2).toEqual(['2401.00030'])
     })
     expect(asked).toHaveLength(3)
@@ -276,13 +277,12 @@ describe('abstract memo cap (ABSTRACT_MEMO_MAX)', () => {
       for (const id of ['1', '2', '3']) {
         await loadPaperContent(`2401.0004${id}`, noContentFetch, db, fallback, 168, false, 'off')
       }
-      // '1' and '2' are gone; re-reading them goes back to the arXiv API, while
-      // the two most recent are still served from memory.
+      // Key 41 was evicted. Check 42 and 43 before reinserting 41.
       const { asked: again, fallback: fb2 } = countingFallback()
-      await loadPaperContent('2401.00041', noContentFetch, db, fb2, 168, false, 'off')
       await loadPaperContent('2401.00042', noContentFetch, db, fb2, 168, false, 'off')
       await loadPaperContent('2401.00043', noContentFetch, db, fb2, 168, false, 'off')
-      expect(again).toEqual(['2401.00041', '2401.00042'])
+      await loadPaperContent('2401.00041', noContentFetch, db, fb2, 168, false, 'off')
+      expect(again).toEqual(['2401.00041'])
     })
   })
 
