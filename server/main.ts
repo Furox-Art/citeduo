@@ -119,7 +119,12 @@ server = Bun.serve({
   // silently kills it mid-turn.
   idleTimeout: 120,
   fetch(req) {
-    return handleApiRequest(req, { db, opencodeClient, rateLimiter, accessToken: ACCESS_TOKEN })
+    return handleApiRequest(req, {
+      db, opencodeClient, rateLimiter, accessToken: ACCESS_TOKEN,
+      requestIp: safeRequestIp(req),
+      aiAvailable,
+      serveStatic,
+    })
   },
 })
 
