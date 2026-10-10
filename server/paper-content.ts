@@ -246,7 +246,8 @@ const abstractMemo = new Map<string, PaperContent>()
 
 /** Number of abstracts this instance keeps; `0` disables the memo entirely. */
 export function abstractMemoMax(): number {
-  return Math.max(0, Math.floor(Number(env.abstractMemoMax ?? 500)))
+  const parsed = Number(env.abstractMemoMax ?? 500)
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 500
 }
 
 function memoizeAbstract(content: PaperContent): PaperContent {
