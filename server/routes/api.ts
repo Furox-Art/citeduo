@@ -41,12 +41,16 @@ export interface ApiDeps {
   opencodeClient: ReturnType<typeof createOpencodeClient>
   rateLimiter: ((key: string) => boolean) | null
   accessToken: string
+  /** Trusted socket address; never derived from request headers. */
+  requestIp?: string
+  aiAvailable?: () => Promise<boolean>
+  serveStatic?: (path: string) => Promise<Response>
 }
 
 /**
- * The fetch handler: auth, rate limiting, then routing. Extracted verbatim
- * from `main.ts` so the two layers this repo documents can be tested in
- * isolation from the network stack.
+ * Auth, rate limiting, AI availability, API routing and static SPA fallback.
+ * The live server supplies the trusted transport IP and static handler;
+ * isolated tests inject controlled stubs without binding a socket.
  */
 export async function handleApiRequest(req: Request, deps: ApiDeps): Promise<Response> {
   const url = new URL(req.url)
@@ -70,10 +74,14 @@ export async function handleApiRequest(req: Request, deps: ApiDeps): Promise<Res
     }
 
     if (rateLimiter && p.startsWith('/api/') && !RATE_LIMIT_EXEMPT.some((prefix) => p.startsWith(prefix))) {
-      const ip = clientIpFrom(req.headers, config.server.trustProxy, req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown')
+      const ip = clientIpFrom(req.headers, config.server.trustProxy, deps.requestIp ?? 'unknown')
       if (!rateLimiter(ip)) {
         throw new ApiError('RATE_LIMITED', '请求过于频繁，请稍后重试', 429)
       }
+    }
+
+    if (p.startsWith('/api/ai/') && !(await deps.aiAvailable?.())) {
+      throw new ApiError('LLM_UNAVAILABLE', 'AI is not available', 503)
     }
 
     if (p === '/api/search' && req.method === 'POST') return await searchRoute(req)
@@ -107,7 +115,7 @@ export async function handleApiRequest(req: Request, deps: ApiDeps): Promise<Res
       return await paperSectionRoute(req, sectionMatch[1], Number(sectionMatch[2]), db, INTERNAL_TOKEN)
     }
     if (p.startsWith('/api/')) throw new ApiError('VALIDATION_FAILED', `未知接口: ${p}`, 404)
-    return json({ error: { code: 'NOT_FOUND', message: 'static files are served by main.ts' } }, 404)
+    return deps.serveStatic ? await deps.serveStatic(p) : json({ error: { code: 'NOT_FOUND', message: 'static file handler not provided' } }, 404)
   } catch (e) {
     return handleError(e)
   }
