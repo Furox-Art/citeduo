@@ -20,6 +20,9 @@ function deps(rateLimiter: ((key: string) => boolean) | null) {
     opencodeClient: client,
     rateLimiter,
     accessToken: '',
+    requestIp: '192.0.2.10',
+    aiAvailable: async () => true,
+    serveStatic: async (_path: string) => new Response('INDEX', { status: 200 }),
   }
 }
 
@@ -71,6 +74,7 @@ describe('per-IP rate limiter covers /api/search and /api/connect', () => {
       headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.0.2' },
       body: '{}',
     })
+    d.requestIp = '192.0.2.11'
     const res = await handleApiRequest(other, d)
     expect(res.status).not.toBe(429)
   })
@@ -85,5 +89,30 @@ describe('exemption prefixes are exactly the documented three', () => {
     for (const prefix of ['/api/search', '/api/connect']) {
       expect(RATE_LIMIT_EXEMPT.some((e) => prefix.startsWith(e))).toBe(false)
     }
+  })
+})
+
+describe('reviewed routing security and static responses', () => {
+  test('forged forwarded IP cannot evade limiter without trusted proxy', async () => {
+    const d = deps(createRateLimiter({ windowMs: 60_000, max: 1 }))
+    await handleApiRequest(post('/api/search'), d)
+    const forged = post('/api/search')
+    forged.headers.set('x-forwarded-for', '203.0.113.100')
+    expect((await handleApiRequest(forged, d)).status).toBe(429)
+  })
+
+  test('non-API paths serve the SPA only after authentication', async () => {
+    const d = deps(null)
+    expect(await (await handleApiRequest(new Request('http://localhost/'), d)).text()).toBe('INDEX')
+    expect(await (await handleApiRequest(new Request('http://localhost/assets/app.js'), d)).text()).toBe('INDEX')
+    d.accessToken = 'only-pass'
+    expect((await handleApiRequest(new Request('http://localhost/'), d)).status).toBe(401)
+  })
+
+  test('AI endpoints are unavailable when AI is disabled', async () => {
+    const d = deps(null)
+    d.aiAvailable = async () => false
+    const res = await handleApiRequest(post('/api/ai/session'), d)
+    expect(res.status).toBe(503)
   })
 })
